@@ -1,0 +1,769 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="description" content="Upload a pixel-art sprite and get a step-by-step drawing guide. Free, no uploads, no accounts — everything runs in your browser.">
+<title>Sprite Breakdown — free pixel-art drawing guide</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' fill='%2314161f'/%3E%3Crect x='3' y='3' width='4' height='4' fill='%237dd87d'/%3E%3Crect x='9' y='3' width='4' height='4' fill='%237dd87d'/%3E%3Crect x='3' y='9' width='4' height='4' fill='%237dd87d'/%3E%3Crect x='9' y='9' width='4' height='4' fill='%233f7a44'/%3E%3C/svg%3E">
+<style>:root {
+  --bg: #14161f;
+  --panel: #1d2029;
+  --panel2: #232634;
+  --text: #eef0f8;
+  --muted: #a7abc0;
+  --accent: #7dd87d;
+  --accent-dim: #3f7a44;
+  --danger: #ff8a8a;
+  --radius: 12px;
+}
+* { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  line-height: 1.5;
+}
+.wrap { max-width: 600px; margin: 0 auto; padding: 16px 16px 40px; }
+header h1 { font-size: 1.35rem; margin: 8px 0 2px; }
+header p { color: var(--muted); margin: 0 0 16px; font-size: 0.95rem; }
+
+.card {
+  background: var(--panel);
+  border: 1px solid #2c3040;
+  border-radius: var(--radius);
+  padding: 16px;
+  margin-bottom: 16px;
+}
+.card h2 { font-size: 1.05rem; margin: 0 0 8px; }
+.card h3 { font-size: 0.95rem; margin: 14px 0 8px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; }
+
+#dropzone {
+  border: 2px dashed #3a3f55;
+  border-radius: var(--radius);
+  padding: 40px 20px;
+  text-align: center;
+  color: var(--muted);
+  cursor: pointer;
+  touch-action: manipulation;
+  user-select: none;
+  -webkit-user-select: none;
+}
+#dropzone.dragover { border-color: var(--accent); color: var(--text); background: #1a241c; }
+#dropzone .big { font-size: 2rem; display: block; margin-bottom: 8px; }
+#fileInput { display: none; }
+
+.btn {
+  display: inline-flex; align-items: center; justify-content: center;
+  min-height: 44px; min-width: 44px;
+  padding: 10px 18px;
+  border-radius: 10px;
+  border: 1px solid #3a3f55;
+  background: var(--panel2);
+  color: var(--text);
+  font-size: 1rem;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+.btn:active { transform: scale(0.97); }
+.btn.primary { background: var(--accent-dim); border-color: var(--accent-dim); font-weight: 600; }
+.btnrow { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 12px; }
+
+.hint { font-size: 0.85rem; color: var(--muted); }
+.warn { font-size: 0.9rem; color: #ffd98a; background: #2a2415; border: 1px solid #5a4a22; border-radius: 8px; padding: 8px 12px; margin-top: 10px; }
+
+#stage { text-align: center; }
+#stepCanvas {
+  image-rendering: pixelated;
+  image-rendering: crisp-edges;
+  background:
+    repeating-conic-gradient(#20232f 0% 25%, #1a1d27 0% 50%) 0 0 / 24px 24px;
+  border-radius: 8px;
+  max-width: 100%;
+  touch-action: pan-y;
+}
+.stepnav { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 12px 0 4px; }
+#stepTitle { font-weight: 700; font-size: 1.05rem; }
+#stepCount { color: var(--muted); font-size: 0.9rem; }
+.dots { display: flex; gap: 8px; justify-content: center; margin: 10px 0; }
+.dot { width: 12px; height: 12px; border-radius: 50%; background: #3a3f55; border: none; padding: 0; min-width: 0; min-height: 0; cursor: pointer; }
+.dot[aria-current="true"] { background: var(--accent); }
+#stepTip { background: var(--panel2); border-radius: 8px; padding: 10px 12px; font-size: 0.93rem; margin: 8px 0 0; }
+#stepSwatches { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; justify-content: center; }
+.sw {
+  width: 44px; height: 44px; border-radius: 8px;
+  border: 2px solid rgba(255,255,255,0.25);
+  cursor: pointer; padding: 0;
+  touch-action: manipulation;
+}
+.sw:active { transform: scale(0.94); }
+.swhex { font-size: 0.68rem; color: var(--muted); text-align: center; margin-top: 2px; word-break: break-all; }
+.swcell { display: flex; flex-direction: column; align-items: center; width: 52px; }
+#allPalette { display: flex; gap: 10px; flex-wrap: wrap; }
+.zoomrow { display: flex; gap: 10px; align-items: center; justify-content: center; margin-top: 10px; }
+#zoomLabel { color: var(--muted); font-size: 0.9rem; min-width: 64px; text-align: center; }
+
+footer { color: var(--muted); font-size: 0.82rem; text-align: center; margin-top: 24px; }
+footer .lock { font-size: 1rem; }
+.hidden { display: none !important; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <h1>🧩 Sprite Breakdown</h1>
+    <p>Upload a pixel-art sprite, get a step-by-step guide to drawing in its style. Free forever.</p>
+  </header>
+
+  <div id="toast" class="hidden" role="status"
+       style="position:fixed;left:50%;bottom:24px;transform:translateX(-50%);background:#2c3040;color:#fff;padding:10px 18px;border-radius:10px;z-index:50;font-size:.9rem;"></div>
+
+  <!-- ============ UPLOAD ============ -->
+  <section id="uploadView" class="card">
+    <div id="dropzone" role="button" tabindex="0" aria-label="Upload a sprite image">
+      <span class="big">🖼️</span>
+      <strong>Tap to upload a sprite</strong><br>
+      or drag &amp; drop a PNG here
+      <p class="hint">Works best with pixel art on a transparent background.<br>Photos will give messy results — this tool reads exact pixels.</p>
+    </div>
+    <input type="file" id="fileInput" accept="image/*" aria-hidden="true">
+  </section>
+
+  <!-- ============ RESULTS ============ -->
+  <section id="resultView" class="hidden">
+
+    <div class="card" id="guideCard">
+      <h2>Drawing guide</h2>
+      <p class="hint" style="margin-top:0">A good drawing order — not necessarily the order the artist used.</p>
+      <div id="stage">
+        <canvas id="stepCanvas" width="16" height="16"></canvas>
+      </div>
+      <div class="stepnav">
+        <button class="btn" id="prevBtn" aria-label="Previous step">← Prev</button>
+        <div><div id="stepTitle">Step</div></div>
+        <button class="btn primary" id="nextBtn" aria-label="Next step">Next →</button>
+      </div>
+      <div class="dots" id="dots"></div>
+      <div class="zoomrow">
+        <button class="btn" id="zoomOut" aria-label="Zoom out">−</button>
+        <span id="zoomLabel">1x</span>
+        <button class="btn" id="zoomIn" aria-label="Zoom in">+</button>
+      </div>
+      <p id="stepTip"></p>
+      <div id="stepSwatches"></div>
+    </div>
+
+    <div class="card">
+      <h2>Palette</h2>
+      <p class="hint" id="palCount"></p>
+      <div id="allPalette"></div>
+      <h3>Export</h3>
+      <div class="btnrow">
+        <button class="btn" id="gplBtn">Download .gpl</button>
+        <button class="btn" id="hexBtn">Copy hex list</button>
+      </div>
+      <p class="hint">.gpl opens in Aseprite &amp; LibreSprite. Tap any swatch to copy its hex.</p>
+    </div>
+
+    <div class="warn hidden" id="scaleWarn">Large image — analysis ran on a downscaled 1024px version. For exact pixel counts, upload the sprite at native size.</div>
+    <div class="warn hidden" id="noAlphaWarn">No transparency detected, so outline detection was skipped. Sprites with transparent backgrounds give the best breakdowns.</div>
+
+    <div class="btnrow" style="margin-bottom:16px">
+      <button class="btn" id="newBtn">← Analyze another sprite</button>
+    </div>
+
+  </section>
+
+  <footer>
+    <span class="lock">🔒</span> Your images never leave this device. No uploads, no accounts, no tracking.<br>
+    Sprite Breakdown MVP · free &amp; open for game devs
+  </footer>
+
+</div>
+<script>/* ============================================================
+ * Sprite Breakdown — pure analysis module (no DOM, no canvas).
+ * All functions operate on a flat RGBA pixel array:
+ *   data   : array-like of numbers, length = width*height*4
+ *   width  : image width in pixels
+ *   height : image height in pixels
+ * Works with Uint8ClampedArray (from canvas) or plain Arrays.
+ * ============================================================ */
+
+function SB_hex(r, g, b) {
+  const h = (n) => n.toString(16).padStart(2, '0');
+  return '#' + h(r) + h(g) + h(b);
+}
+
+function SB_key(r, g, b, a) { return r + ',' + g + ',' + b + ',' + a; }
+
+function SB_rgbToHsl(r, g, b) {
+  r /= 255; g /= 255; b /= 255;
+  const mx = Math.max(r, g, b), mn = Math.min(r, g, b);
+  const l = (mx + mn) / 2;
+  let h = 0, s = 0;
+  if (mx !== mn) {
+    const d = mx - mn;
+    s = l > 0.5 ? d / (2 - mx - mn) : d / (mx + mn);
+    if (mx === r) h = (g - b) / d + (g < b ? 6 : 0);
+    else if (mx === g) h = (b - r) / d + 2;
+    else h = (r - g) / d + 4;
+    h *= 60;
+  }
+  return { h: h, s: s, l: l };
+}
+
+function SB_relLum(r, g, b) {
+  const f = (c) => { c /= 255; return c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4); };
+  return 0.2126 * f(r) + 0.7152 * f(g) + 0.0722 * f(b);
+}
+
+function SB_hueDist(h1, h2) {
+  const d = Math.abs(h1 - h2) % 360;
+  return d > 180 ? 360 - d : d;
+}
+
+function SB_hueName(h, s, l) {
+  if (s < 0.15) {
+    if (l < 0.12) return 'near-black';
+    if (l > 0.85) return 'near-white';
+    return 'gray';
+  }
+  if (h < 15 || h >= 345) return 'red';
+  if (h < 45) return 'orange';
+  if (h < 75) return 'yellow';
+  if (h < 165) return 'green';
+  if (h < 195) return 'cyan';
+  if (h < 255) return 'blue';
+  return 'purple';
+}
+
+function SB_describe(c) {
+  const tone = c.lum < 0.06 ? 'near-black' : c.lum < 0.22 ? 'dark' : c.lum > 0.75 ? 'light' : 'mid-tone';
+  const hue = SB_hueName(c.h, c.s, c.l);
+  if (hue === 'near-black' || hue === 'near-white' || hue === 'gray') return hue;
+  return tone + ' ' + hue;
+}
+
+/* Exact RGBA census of opaque pixels (alpha === 0 skipped).
+ * Returns array of {r,g,b,a,key,hex,count} sorted by count desc. */
+function SB_census(data, width, height) {
+  const map = new Map();
+  const n = width * height;
+  for (let i = 0; i < n; i++) {
+    const o = i * 4;
+    const a = data[o + 3];
+    if (a === 0) continue;
+    const r = data[o], g = data[o + 1], b = data[o + 2];
+    const k = SB_key(r, g, b, a);
+    let e = map.get(k);
+    if (!e) { e = { r: r, g: g, b: b, a: a, key: k, hex: SB_hex(r, g, b), count: 0 }; map.set(k, e); }
+    e.count++;
+  }
+  const out = Array.from(map.values());
+  out.sort((x, y) => y.count - x.count);
+  return out;
+}
+
+/* For each color key, fraction of its pixels touching transparency
+ * (8-neighborhood) or the image edge. */
+function SB_boundaryFractions(data, width, height, keys) {
+  const idx = new Map();
+  keys.forEach((k, i) => idx.set(k, i));
+  const touch = new Array(keys.length).fill(0);
+  const total = new Array(keys.length).fill(0);
+  const keyAt = (x, y) => {
+    if (x < 0 || y < 0 || x >= width || y >= height) return null;
+    const o = (y * width + x) * 4;
+    if (data[o + 3] === 0) return null;
+    return SB_key(data[o], data[o + 1], data[o + 2], data[o + 3]);
+  };
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      const o = (y * width + x) * 4;
+      if (data[o + 3] === 0) continue;
+      const ci = idx.get(SB_key(data[o], data[o + 1], data[o + 2], data[o + 3]));
+      total[ci]++;
+      let b = false;
+      for (let dy = -1; dy <= 1 && !b; dy++) {
+        for (let dx = -1; dx <= 1; dx++) {
+          if (dx === 0 && dy === 0) continue;
+          if (keyAt(x + dx, y + dy) === null) { b = true; break; }
+        }
+      }
+      if (b) touch[ci]++;
+    }
+  }
+  const out = new Map();
+  keys.forEach((k, i) => out.set(k, total[i] ? touch[i] / total[i] : 0));
+  return out;
+}
+
+/* Detect 2x2 checkerboard dithering between two colors. */
+function SB_detectDither(data, width, height) {
+  const keyAt = (x, y) => {
+    const o = (y * width + x) * 4;
+    if (data[o + 3] === 0) return null;
+    return SB_key(data[o], data[o + 1], data[o + 2], data[o + 3]);
+  };
+  const pairs = new Map();
+  let blocks = 0;
+  for (let y = 0; y < height - 1; y++) {
+    for (let x = 0; x < width - 1; x++) {
+      const a = keyAt(x, y), b = keyAt(x + 1, y), c = keyAt(x, y + 1), d = keyAt(x + 1, y + 1);
+      if (a === null || b === null || c === null || d === null) continue;
+      if (a === d && b === c && a !== b) {
+        const p = a < b ? a + '|' + b : b + '|' + a;
+        pairs.set(p, (pairs.get(p) || 0) + 1);
+        blocks++;
+      }
+    }
+  }
+  if (blocks < 4) return { found: false, blocks: 0 };
+  let top = null, tc = 0;
+  pairs.forEach((cnt, p) => { if (cnt > tc) { tc = cnt; top = p; } });
+  const parts = top.split('|');
+  return { found: true, colorA: parts[0], colorB: parts[1], blocks: blocks };
+}
+
+/* Classify every color into a role. Heuristics, applied in order:
+ *  - outline : >=50% of pixels touch transparency/edge
+ *  - fill    : up to 3 highest-count interior (<35% boundary) colors
+ *  - shade/highlight/tone : within 40deg hue of a fill and darker/lighter/similar
+ *  - accent  : everything else (small detail colors) */
+function SB_classify(data, width, height) {
+  const census = SB_census(data, width, height);
+  const keys = census.map((c) => c.key);
+  const bf = SB_boundaryFractions(data, width, height, keys);
+  const cols = census.map((c) => {
+    const hsl = SB_rgbToHsl(c.r, c.g, c.b);
+    return {
+      r: c.r, g: c.g, b: c.b, a: c.a, key: c.key, hex: c.hex, count: c.count,
+      h: hsl.h, s: hsl.s, l: hsl.l, lum: SB_relLum(c.r, c.g, c.b),
+      boundary: bf.get(c.key), role: 'unassigned', rampOf: null
+    };
+  });
+
+  const remaining = [];
+  for (const c of cols) {
+    if (c.boundary >= 0.5) c.role = 'outline';
+    else remaining.push(c);
+  }
+
+  const interior = remaining.filter((c) => c.boundary < 0.35).sort((a, b) => b.count - a.count);
+  let fills = interior.slice(0, 3);
+  if (fills.length === 0 && cols.length > 0) {
+    // Degenerate case (e.g. no transparency at all): the dominant color is the fill.
+    cols[0].role = 'fill';
+    fills = [cols[0]];
+  }
+  const fillSet = new Set(fills.map((f) => f.key));
+  fills.forEach((c) => { c.role = 'fill'; });
+
+  for (const c of remaining) {
+    if (fillSet.has(c.key)) continue;
+    let best = null, bd = 1e9;
+    for (const f of fills) {
+      const d = SB_hueDist(c.h, f.h);
+      if (d < bd) { bd = d; best = f; }
+    }
+    if (best && bd <= 40 && c.s > 0.12 && best.s > 0.12) {
+      c.rampOf = best.key;
+      if (c.lum < best.lum - 0.04) c.role = 'shade';
+      else if (c.lum > best.lum + 0.04) c.role = 'highlight';
+      else c.role = 'tone';
+    } else {
+      c.role = 'accent';
+    }
+  }
+
+  const dither = SB_detectDither(data, width, height);
+  const hasTransparency = (() => {
+    const n = width * height;
+    for (let i = 0; i < n; i++) if (data[i * 4 + 3] === 0) return true;
+    return false;
+  })();
+  return {
+    colors: cols,
+    width: width, height: height,
+    totalOpaque: cols.reduce((s, c) => s + c.count, 0),
+    dither: dither,
+    hasTransparency: hasTransparency
+  };
+}
+
+/* Group fills with their shade/highlight/tone ramp members. */
+function SB_ramps(classified) {
+  return classified.colors
+    .filter((c) => c.role === 'fill')
+    .map((f) => ({
+      fill: f,
+      members: classified.colors
+        .filter((c) => c.rampOf === f.key)
+        .sort((a, b) => b.lum - a.lum)
+    }));
+}
+
+/* Build the step-by-step guide. Each step:
+ *   { title, visible:Set(keys), added:[colors], tip, tone?:hex }
+ * Steps that add no new colors (except first/last) are dropped. */
+function SB_buildSteps(cl) {
+  const byRole = (r) => cl.colors.filter((c) => c.role === r);
+  const outlines = byRole('outline');
+  const fills = byRole('fill');
+  const shades = byRole('shade').concat(byRole('tone'));
+  const highs = byRole('highlight');
+  const accents = byRole('accent');
+  const all = cl.colors;
+
+  const hexList = (arr) => arr.map((c) => c.hex).join(', ');
+  const pct = (arr) => cl.totalOpaque ? Math.round(100 * arr.reduce((s, c) => s + c.count, 0) / cl.totalOpaque) : 0;
+
+  let outlineTip;
+  if (outlines.length) {
+    const o = outlines[0];
+    outlineTip = 'Outline: ' + o.hex + ' — a ' + SB_describe(o) +
+      (o.hex.toLowerCase() === '#000000' ? ', pure black.' : ', not pure black.') +
+      ' Trace the silhouette with it before filling anything in.';
+  } else if (!cl.hasTransparency) {
+    outlineTip = 'No transparency in this image, so no outline could be detected. ' +
+      'Upload a sprite with a transparent background for outline detection.';
+  } else {
+    outlineTip = 'No outline detected — shapes end at the fills. That is a softer, outline-less style; keep edges clean instead.';
+  }
+
+  const ditherTip = cl.dither.found
+    ? ' Checkerboard dithering spotted between two tones (' + cl.dither.blocks + ' blocks) — a classic way to blend without adding colors.'
+    : '';
+
+  const cand = [
+    {
+      title: 'Silhouette', tone: '#262a44', visible: all, added: [],
+      tip: 'Block in the whole shape first: ' + cl.totalOpaque + ' opaque pixels at ' +
+        cl.width + 'x' + cl.height + '. If it reads well as a blob, the sprite will work.' +
+        (cl.colors.length <= 16 ? ' Tight ' + cl.colors.length + '-color palette — beginner-friendly.' : ' ' + cl.colors.length + ' colors total.')
+    },
+    {
+      title: 'Base fills', visible: fills, added: fills,
+      tip: fills.length
+        ? 'Lay in the ' + fills.length + ' main fill' + (fills.length > 1 ? 's' : '') + ': ' + hexList(fills) +
+          '. They cover ' + pct(fills) + '% of the sprite — get these flat shapes right before shading.'
+        : 'No clear fill colors found — start with the single biggest color region.'
+    },
+    {
+      title: 'Shading', visible: fills.concat(shades), added: shades,
+      tip: shades.length
+        ? shades.length + ' shade color' + (shades.length > 1 ? 's' : '') + ' darken the fills: ' + hexList(shades) +
+          '. Pick one light direction and keep every shadow on the same side.' + ditherTip
+        : 'No separate shade colors detected — this sprite is flat-shaded. Add one darker tone per fill on a consistent side.' + ditherTip
+    },
+    {
+      title: 'Highlights', visible: fills.concat(shades, highs), added: highs,
+      tip: highs.length
+        ? highs.length + ' highlight' + (highs.length > 1 ? 's' : '') + ': ' + hexList(highs) +
+          '. Less is more — highlights sit opposite the shadows, on edges facing the light.'
+        : 'No highlight colors detected. One lighter tone per fill, used sparingly, adds a lot of pop.'
+    },
+    {
+      title: 'Outline', visible: fills.concat(shades, highs, outlines), added: outlines,
+      tip: outlineTip
+    },
+    {
+      title: 'Details', visible: all, added: accents,
+      tip: accents.length
+        ? 'Finish with ' + accents.length + ' accent' + (accents.length > 1 ? 's' : '') + ' for the small stuff: ' + hexList(accents) + '.'
+        : 'No tiny accent colors — all the detail lives in the shapes themselves.'
+    }
+  ];
+
+  // Normalize visibility to Sets of color keys (the renderer uses Set.has).
+  const keySet = (arr) => new Set(arr.map((c) => c.key));
+  cand.forEach((s) => { s.visible = keySet(s.visible); });
+  // Drop middle steps that add nothing new; always keep first and last.
+  const steps = cand.filter((s, i) => i === 0 || i === cand.length - 1 || s.added.length > 0);
+  steps.forEach((s, i) => { s.num = i + 1; s.total = steps.length; });
+  return steps;
+}
+
+/* GIMP (.gpl) palette — opens in Aseprite / LibreSprite. */
+function SB_paletteToGpl(colors, name) {
+  let s = 'GIMP Palette\nName: ' + (name || 'Sprite Breakdown') + '\nColumns: 8\n#\n';
+  const sorted = colors.slice().sort((a, b) => b.count - a.count);
+  for (const c of sorted) s += c.r + ' ' + c.g + ' ' + c.b + '\t' + c.hex + '\n';
+  return s;
+}
+
+/* Downscale policy: longest side capped at 1024 for analysis. */
+function SB_needsDownscale(w, h) { return Math.max(w, h) > 1024; }
+function SB_downscaleSize(w, h) {
+  const m = Math.max(w, h);
+  if (m <= 1024) return { w: w, h: h, scaled: false };
+  const k = 1024 / m;
+  return { w: Math.max(1, Math.round(w * k)), h: Math.max(1, Math.round(h * k)), scaled: true };
+}
+</script>
+<script>/* Sprite Breakdown — app shell (DOM). Pure analysis lives in analysis.js. */
+(function () {
+  'use strict';
+
+  var state = { cl: null, steps: [], stepIdx: 0, zoom: 1, w: 0, h: 0, px: null, scaledNote: false };
+
+  function $(id) { return document.getElementById(id); }
+
+  function toast(msg) {
+    var t = $('toast');
+    t.textContent = msg;
+    t.classList.remove('hidden');
+    clearTimeout(t._h);
+    t._h = setTimeout(function () { t.classList.add('hidden'); }, 1600);
+  }
+
+  function copyText(text, label) {
+    function done() { toast((label || 'Copied') + ': ' + text); }
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).then(done, function () { fallback(); });
+    } else { fallback(); }
+    function fallback() {
+      var ta = document.createElement('textarea');
+      ta.value = text;
+      ta.style.position = 'fixed'; ta.style.opacity = '0';
+      document.body.appendChild(ta);
+      ta.select();
+      try { document.execCommand('copy'); done(); }
+      catch (e) { toast('Copy failed — long-press the text'); }
+      document.body.removeChild(ta);
+    }
+  }
+
+  function download(name, text, mime) {
+    var blob = new Blob([text], { type: mime || 'text/plain' });
+    var a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = name;
+    document.body.appendChild(a);
+    a.click();
+    setTimeout(function () { URL.revokeObjectURL(a.href); a.remove(); }, 500);
+  }
+
+  /* ---- core pipeline: flat RGBA array -> full UI ---- */
+  function loadPixels(data, w, h, scaledNote) {
+    state.px = data; state.w = w; state.h = h;
+    state.scaledNote = !!scaledNote;
+    state.cl = SB_classify(data, w, h);
+    state.steps = SB_buildSteps(state.cl);
+    state.stepIdx = 0;
+    state.zoom = 1;
+    $('uploadView').classList.add('hidden');
+    $('resultView').classList.remove('hidden');
+    renderPalette();
+    renderStep();
+    if (state.scaledNote) {
+      $('scaleWarn').classList.remove('hidden');
+    } else {
+      $('scaleWarn').classList.add('hidden');
+    }
+    if (!state.cl.hasTransparency) $('noAlphaWarn').classList.remove('hidden');
+    else $('noAlphaWarn').classList.add('hidden');
+    document.title = 'READY';
+  }
+
+  function fitScale() {
+    var wrapW = $('stage').clientWidth || 320;
+    var s = Math.floor(Math.min(wrapW / state.w, 360 / state.h));
+    if (s < 1) s = 1;
+    if (s > 16) s = 16;
+    return s;
+  }
+
+  function renderStep() {
+    var st = state.steps[state.stepIdx];
+    var scale = fitScale() * state.zoom;
+    var c = $('stepCanvas');
+    c.width = state.w * scale;
+    c.height = state.h * scale;
+    var ctx = c.getContext('2d');
+    ctx.imageSmoothingEnabled = false;
+
+    // offscreen 1x buffer
+    var off = document.createElement('canvas');
+    off.width = state.w; off.height = state.h;
+    var octx = off.getContext('2d');
+    var img = octx.createImageData(state.w, state.h);
+    var d = state.px, out = img.data;
+    var vis = st.visible;
+    var tone = st.tone || null;
+    var tr = 0, tg = 0, tb = 0;
+    if (tone) { tr = parseInt(tone.slice(1, 3), 16); tg = parseInt(tone.slice(3, 5), 16); tb = parseInt(tone.slice(5, 7), 16); }
+    var n = state.w * state.h;
+    for (var i = 0; i < n; i++) {
+      var o = i * 4;
+      if (d[o + 3] === 0) continue;
+      var k = SB_key(d[o], d[o + 1], d[o + 2], d[o + 3]);
+      if (!vis.has(k)) continue;
+      if (tone) { out[o] = tr; out[o + 1] = tg; out[o + 2] = tb; out[o + 3] = 255; }
+      else { out[o] = d[o]; out[o + 1] = d[o + 1]; out[o + 2] = d[o + 2]; out[o + 3] = 255; }
+    }
+    octx.putImageData(img, 0, 0);
+    ctx.drawImage(off, 0, 0, c.width, c.height);
+
+    $('stepTitle').textContent = 'Step ' + st.num + ' of ' + st.total + ': ' + st.title;
+    $('stepTip').textContent = st.tip;
+    $('zoomLabel').textContent = scale + 'x';
+
+    // swatches added at this step
+    var sw = $('stepSwatches');
+    sw.innerHTML = '';
+    st.added.forEach(function (col) {
+      sw.appendChild(swatchCell(col, col.role));
+    });
+    if (!st.added.length) {
+      var p = document.createElement('p');
+      p.className = 'hint';
+      p.textContent = state.cl.colors.length + ' colors total in this sprite.';
+      sw.appendChild(p);
+    }
+
+    // dots
+    var dots = $('dots');
+    dots.innerHTML = '';
+    state.steps.forEach(function (s, i) {
+      var b = document.createElement('button');
+      b.className = 'dot';
+      b.setAttribute('aria-label', 'Go to step ' + s.num + ': ' + s.title);
+      b.setAttribute('aria-current', i === state.stepIdx ? 'true' : 'false');
+      b.addEventListener('click', function () { goStep(i); });
+      dots.appendChild(b);
+    });
+
+    $('prevBtn').disabled = state.stepIdx === 0;
+    $('nextBtn').disabled = state.stepIdx === state.steps.length - 1;
+  }
+
+  function swatchCell(col, role) {
+    var cell = document.createElement('div');
+    cell.className = 'swcell';
+    var b = document.createElement('button');
+    b.className = 'sw';
+    b.style.background = col.hex;
+    b.title = col.hex + ' (' + role + ', ' + col.count + ' px)';
+    b.setAttribute('aria-label', 'Copy ' + col.hex);
+    b.addEventListener('click', function () { copyText(col.hex, 'Copied'); });
+    var lab = document.createElement('div');
+    lab.className = 'swhex';
+    lab.textContent = col.hex;
+    cell.appendChild(b);
+    cell.appendChild(lab);
+    return cell;
+  }
+
+  function renderPalette() {
+    var pal = $('allPalette');
+    pal.innerHTML = '';
+    state.cl.colors.forEach(function (col) {
+      pal.appendChild(swatchCell(col, col.role));
+    });
+    $('palCount').textContent = state.cl.colors.length + ' colors · ' +
+      state.cl.totalOpaque + ' opaque pixels · ' + state.w + '×' + state.h;
+  }
+
+  function goStep(i) {
+    if (i < 0 || i >= state.steps.length) return;
+    state.stepIdx = i;
+    renderStep();
+  }
+
+  function zoomBy(d) {
+    var z = state.zoom + d;
+    if (z < 1) z = 1;
+    if (z > 4) z = 4;
+    state.zoom = z;
+    renderStep();
+  }
+
+  /* ---- file intake ---- */
+  function handleFile(file) {
+    if (!file || !file.type.match(/^image\//)) { toast('Please choose an image file'); return; }
+    var url = URL.createObjectURL(file);
+    var img = new Image();
+    img.onload = function () {
+      URL.revokeObjectURL(url);
+      var size = SB_downscaleSize(img.naturalWidth, img.naturalHeight);
+      var c = document.createElement('canvas');
+      c.width = size.w; c.height = size.h;
+      var ctx = c.getContext('2d');
+      ctx.imageSmoothingEnabled = true;
+      ctx.drawImage(img, 0, 0, size.w, size.h);
+      var data = ctx.getImageData(0, 0, size.w, size.h).data;
+      loadPixels(data, size.w, size.h, size.scaled);
+      window.scrollTo(0, 0);
+    };
+    img.onerror = function () { toast('Could not read that image'); };
+    img.src = url;
+  }
+
+  function init() {
+    var dz = $('dropzone'), fi = $('fileInput');
+    dz.addEventListener('click', function () { fi.click(); });
+    dz.addEventListener('keydown', function (e) {
+      if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); fi.click(); }
+    });
+    fi.addEventListener('change', function () { handleFile(fi.files[0]); fi.value = ''; });
+    ['dragenter', 'dragover'].forEach(function (ev) {
+      dz.addEventListener(ev, function (e) { e.preventDefault(); dz.classList.add('dragover'); });
+    });
+    ['dragleave', 'drop'].forEach(function (ev) {
+      dz.addEventListener(ev, function (e) { e.preventDefault(); dz.classList.remove('dragover'); });
+    });
+    dz.addEventListener('drop', function (e) {
+      if (e.dataTransfer.files && e.dataTransfer.files[0]) handleFile(e.dataTransfer.files[0]);
+    });
+
+    $('prevBtn').addEventListener('click', function () { goStep(state.stepIdx - 1); });
+    $('nextBtn').addEventListener('click', function () { goStep(state.stepIdx + 1); });
+    $('zoomIn').addEventListener('click', function () { zoomBy(1); });
+    $('zoomOut').addEventListener('click', function () { zoomBy(-1); });
+
+    // swipe navigation
+    var sx = null;
+    var stage = $('stage');
+    stage.addEventListener('touchstart', function (e) { sx = e.changedTouches[0].clientX; }, { passive: true });
+    stage.addEventListener('touchend', function (e) {
+      if (sx === null) return;
+      var dx = e.changedTouches[0].clientX - sx;
+      sx = null;
+      if (Math.abs(dx) > 40) goStep(state.stepIdx + (dx < 0 ? 1 : -1));
+    }, { passive: true });
+
+    $('gplBtn').addEventListener('click', function () {
+      download('palette.gpl', SB_paletteToGpl(state.cl.colors, 'Sprite Breakdown'), 'text/plain');
+      toast('palette.gpl saved');
+    });
+    $('hexBtn').addEventListener('click', function () {
+      copyText(state.cl.colors.map(function (c) { return c.hex; }).join(', '), 'Palette copied');
+    });
+    $('newBtn').addEventListener('click', function () {
+      document.title = 'Sprite Breakdown';
+      $('resultView').classList.add('hidden');
+      $('uploadView').classList.remove('hidden');
+      window.scrollTo(0, 0);
+    });
+
+    window.addEventListener('error', function (e) {
+      document.title = 'ERROR: ' + (e.message || 'js error');
+    });
+  }
+
+  // Synchronous hook for automated tests / screenshots.
+  window.SpriteBreakdown = {
+    loadPixels: loadPixels,
+    version: 'mvp-1'
+  };
+
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
+  else init();
+})();
+</script>
+</body>
+</html>
