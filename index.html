@@ -85,9 +85,15 @@ header p { color: var(--muted); margin: 0 0 16px; font-size: 0.95rem; }
   touch-action: pan-y;
 }
 .stepnav { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 12px 0 4px; }
+.stepctl { display: flex; align-items: center; gap: 12px; margin: 10px 0 2px; }
+#stepCountLabel { font-weight: 600; }
+.stepbtn { font-size: 1.25rem; font-weight: 700; line-height: 1; }
+.btn:disabled { opacity: 0.35; cursor: default; }
+.btn:disabled:active { transform: none; }
+#stepCountVal { font-size: 1.2rem; font-weight: 700; min-width: 2.5ch; text-align: center; }
 #stepTitle { font-weight: 700; font-size: 1.05rem; }
 #stepCount { color: var(--muted); font-size: 0.9rem; }
-.dots { display: flex; gap: 8px; justify-content: center; margin: 10px 0; }
+.dots { display: flex; gap: 8px; justify-content: center; margin: 10px 0; flex-wrap: wrap; }
 .dot { width: 12px; height: 12px; border-radius: 50%; background: #3a3f55; border: none; padding: 0; min-width: 0; min-height: 0; cursor: pointer; }
 .dot[aria-current="true"] { background: var(--accent); }
 #stepTip { background: var(--panel2); border-radius: 8px; padding: 10px 12px; font-size: 0.93rem; margin: 8px 0 0; }
@@ -138,6 +144,13 @@ footer .lock { font-size: 1rem; }
     <div class="card" id="guideCard">
       <h2>Drawing guide</h2>
       <p class="hint" style="margin-top:0">A good drawing order — not necessarily the order the artist used.</p>
+      <div class="stepctl">
+        <span id="stepCountLabel">Guide steps</span>
+        <button class="btn stepbtn" id="stepDown" aria-label="Fewer guide steps">−</button>
+        <span id="stepCountVal" aria-live="polite">6</span>
+        <button class="btn stepbtn" id="stepUp" aria-label="More guide steps">+</button>
+      </div>
+      <p class="hint hidden" id="stepCountNote"></p>
       <div id="stage">
         <canvas id="stepCanvas" width="16" height="16"></canvas>
       </div>
@@ -406,17 +419,17 @@ function SB_ramps(classified) {
     }));
 }
 
-/* Build the step-by-step guide. Each step:
- *   { title, visible:Set(keys), added:[colors], tip, tone?:hex }
- * Steps that add no new colors (except first/last) are dropped. */
-function SB_buildSteps(cl) {
+/* ---- Guide phases: ordered, fine-grained color atoms ----
+ * A phase is one pedagogical layer (fills, shading, ...). Each phase holds
+ * an ordered list of atoms; an atom is one drawable chunk of colors.
+ * The silhouette atom is special: it renders every opaque pixel as one tone. */
+function SB_guidePhases(cl) {
   const byRole = (r) => cl.colors.filter((c) => c.role === r);
   const outlines = byRole('outline');
   const fills = byRole('fill');
   const shades = byRole('shade').concat(byRole('tone'));
   const highs = byRole('highlight');
   const accents = byRole('accent');
-  const all = cl.colors;
 
   const hexList = (arr) => arr.map((c) => c.hex).join(', ');
   const pct = (arr) => cl.totalOpaque ? Math.round(100 * arr.reduce((s, c) => s + c.count, 0) / cl.totalOpaque) : 0;
@@ -438,51 +451,202 @@ function SB_buildSteps(cl) {
     ? ' Checkerboard dithering spotted between two tones (' + cl.dither.blocks + ' blocks) — a classic way to blend without adding colors.'
     : '';
 
-  const cand = [
+  const atom = (c) => ({ colors: [c] });
+  return [
     {
-      title: 'Silhouette', tone: '#262a44', visible: all, added: [],
-      tip: 'Block in the whole shape first: ' + cl.totalOpaque + ' opaque pixels at ' +
+      title: 'Silhouette', silhouette: true,
+      atoms: [{ colors: [], silhouette: true }],
+      tip: () => 'Block in the whole shape first: ' + cl.totalOpaque + ' opaque pixels at ' +
         cl.width + 'x' + cl.height + '. If it reads well as a blob, the sprite will work.' +
         (cl.colors.length <= 16 ? ' Tight ' + cl.colors.length + '-color palette — beginner-friendly.' : ' ' + cl.colors.length + ' colors total.')
     },
     {
-      title: 'Base fills', visible: fills, added: fills,
-      tip: fills.length
+      title: 'Base fills',
+      atoms: fills.map(atom),
+      tip: () => fills.length
         ? 'Lay in the ' + fills.length + ' main fill' + (fills.length > 1 ? 's' : '') + ': ' + hexList(fills) +
           '. They cover ' + pct(fills) + '% of the sprite — get these flat shapes right before shading.'
         : 'No clear fill colors found — start with the single biggest color region.'
     },
     {
-      title: 'Shading', visible: fills.concat(shades), added: shades,
-      tip: shades.length
+      title: 'Shading',
+      atoms: shades.map(atom),
+      tip: () => shades.length
         ? shades.length + ' shade color' + (shades.length > 1 ? 's' : '') + ' darken the fills: ' + hexList(shades) +
           '. Pick one light direction and keep every shadow on the same side.' + ditherTip
         : 'No separate shade colors detected — this sprite is flat-shaded. Add one darker tone per fill on a consistent side.' + ditherTip
     },
     {
-      title: 'Highlights', visible: fills.concat(shades, highs), added: highs,
-      tip: highs.length
+      title: 'Highlights',
+      atoms: highs.map(atom),
+      tip: () => highs.length
         ? highs.length + ' highlight' + (highs.length > 1 ? 's' : '') + ': ' + hexList(highs) +
           '. Less is more — highlights sit opposite the shadows, on edges facing the light.'
         : 'No highlight colors detected. One lighter tone per fill, used sparingly, adds a lot of pop.'
     },
     {
-      title: 'Outline', visible: fills.concat(shades, highs, outlines), added: outlines,
-      tip: outlineTip
+      title: 'Outline',
+      atoms: outlines.length ? [{ colors: outlines }] : [],
+      tip: () => outlineTip
     },
     {
-      title: 'Details', visible: all, added: accents,
-      tip: accents.length
+      title: 'Details',
+      atoms: accents.map(atom),
+      tip: () => accents.length
         ? 'Finish with ' + accents.length + ' accent' + (accents.length > 1 ? 's' : '') + ' for the small stuff: ' + hexList(accents) + '.'
         : 'No tiny accent colors — all the detail lives in the shapes themselves.'
     }
   ];
+}
 
-  // Normalize visibility to Sets of color keys (the renderer uses Set.has).
-  const keySet = (arr) => new Set(arr.map((c) => c.key));
-  cand.forEach((s) => { s.visible = keySet(s.visible); });
-  // Drop middle steps that add nothing new; always keep first and last.
-  const steps = cand.filter((s, i) => i === 0 || i === cand.length - 1 || s.added.length > 0);
+/* Kept phases: first and last always, middle phases only when they have atoms. */
+function SB_keptPhases(cl) {
+  const phases = SB_guidePhases(cl);
+  return phases.filter((p, i) => i === 0 || i === phases.length - 1 || p.atoms.length > 0);
+}
+
+/* Maximum sensible step count: one step per drawable atom. */
+function SB_stepCapacity(cl) {
+  return SB_keptPhases(cl).reduce((s, p) => s + p.atoms.length, 0);
+}
+
+/* Split `items` into `k` contiguous buckets, as evenly as possible. */
+function SB_evenBuckets(items, k) {
+  if (k <= 0) return [];
+  if (k >= items.length) return items.map((x) => [x]);
+  const out = [];
+  const base = Math.floor(items.length / k);
+  let rem = items.length % k;
+  let i = 0;
+  for (let g = 0; g < k; g++) {
+    const size = base + (rem > 0 ? 1 : 0);
+    if (rem > 0) rem--;
+    out.push(items.slice(i, i + size));
+    i += size;
+  }
+  return out;
+}
+
+/* Tip for a step that covers part of one phase (the phase was split). */
+function SB_partTip(cl, colors) {
+  const pct1 = (c) => cl.totalOpaque ? Math.round(100 * c.count / cl.totalOpaque) : 0;
+  return 'Add ' + colors.map((c) => c.hex + ' (' + c.role + ', ' + pct1(c) + '% of the sprite)').join(' and ') + '.';
+}
+
+/* Tip for a step that merges several whole phases. */
+function SB_mergedTip(cl, phases) {
+  const colors = [];
+  phases.forEach((p) => p.atoms.forEach((a) => a.colors.forEach((c) => colors.push(c))));
+  if (!colors.length) return 'Nothing new to draw in this step.';
+  const shown = colors.slice(0, 10).map((c) => c.hex).join(', ');
+  const pct = cl.totalOpaque
+    ? Math.round(100 * colors.reduce((s, c) => s + c.count, 0) / cl.totalOpaque) : 0;
+  return 'In one go: ' + colors.length + ' color' + (colors.length === 1 ? '' : 's') +
+    ' (' + shown + (colors.length > 10 ? ', …' : '') + '), covering ' + pct + '% of the sprite.';
+}
+
+/* Build the step-by-step guide.
+ * Each step: { title, visible:Set(keys), added:[colors], tip, tone? }
+ * - `stepCount` defaults to 6 and is clamped to 2..24.
+ * - Asking for more steps than there are drawable atoms clamps down to the
+ *   number of atoms (see SB_stepCapacity).
+ * - Steps that would add nothing are dropped (first and last always kept).
+ * - The final step always renders the complete sprite pixel-for-pixel. */
+function SB_buildSteps(cl, stepCount) {
+  let n = Math.round(stepCount == null ? 6 : stepCount);
+  if (!(n >= 2)) n = 6;
+  n = Math.max(2, Math.min(24, n));
+
+  const kept = SB_keptPhases(cl);
+  const P = kept.length;
+  const capacity = kept.reduce((s, p) => s + p.atoms.length, 0);
+  let target = Math.min(n, capacity);
+  if (target < 1) target = 1;
+
+  // desc: one entry per step -> { segs:[{phase, atoms}], title, tip, silhouette }
+  const desc = [];
+  const pushStep = (segs, title, tip, silhouette) =>
+    desc.push({ segs: segs, title: title, tip: tip, silhouette: !!silhouette });
+
+  if (target >= P) {
+    // Split mode: one step per phase; extra steps subdivide atom-rich phases.
+    const alloc = kept.map(() => 1);
+    let extra = target - P;
+    while (extra > 0) {
+      let best = -1, bestRatio = 0;
+      kept.forEach((p, i) => {
+        if (alloc[i] < p.atoms.length) {
+          const ratio = p.atoms.length / alloc[i];
+          if (ratio > bestRatio) { bestRatio = ratio; best = i; }
+        }
+      });
+      if (best < 0) break;
+      alloc[best]++;
+      extra--;
+    }
+    kept.forEach((p, i) => {
+      if (!p.atoms.length) {
+        pushStep([{ phase: p, atoms: [] }], p.title, p.tip(), p.silhouette);
+        return;
+      }
+      SB_evenBuckets(p.atoms, alloc[i]).forEach((bucket, j) => {
+        const colors = [];
+        bucket.forEach((a) => a.colors.forEach((c) => colors.push(c)));
+        const title = alloc[i] > 1 ? p.title + ' (' + (j + 1) + ' of ' + alloc[i] + ')' : p.title;
+        const tip = alloc[i] > 1 ? SB_partTip(cl, colors) : p.tip();
+        pushStep([{ phase: p, atoms: bucket }], title, tip, p.silhouette);
+      });
+    });
+  } else {
+    // Merge mode: group kept phases into `target` contiguous groups.
+    // Step 1 is always the silhouette alone (when there is more than one step).
+    let groups;
+    if (target >= 2) {
+      groups = [[kept[0]]];
+      const rest = [];
+      for (let i = 1; i < P; i++) rest.push(i);
+      SB_evenBuckets(rest, target - 1).forEach((b) => groups.push(b.map((j) => kept[j])));
+    } else {
+      groups = [kept.slice()];
+    }
+    groups.forEach((phases) => {
+      const segs = phases.map((p) => ({ phase: p, atoms: p.atoms }));
+      const hasLast = phases[phases.length - 1] === kept[kept.length - 1];
+      const title = phases.length === 1
+        ? phases[0].title
+        : (hasLast ? 'Full sprite' : phases.map((p) => p.title).join(' + '));
+      const tip = phases.length === 1 ? phases[0].tip() : SB_mergedTip(cl, phases);
+      pushStep(segs, title, tip, phases.length === 1 && phases[0].silhouette);
+    });
+  }
+
+  // Drop steps that add nothing new; always keep first and last.
+  const useful = desc.filter((d, i) =>
+    i === 0 || i === desc.length - 1 ||
+    d.segs.some((s) => s.atoms.some((a) => a.colors.length > 0)));
+
+  const allKeys = new Set(cl.colors.map((c) => c.key));
+  const steps = useful.map((d) => {
+    const colors = [];
+    d.segs.forEach((s) => s.atoms.forEach((a) => a.colors.forEach((c) => colors.push(c))));
+    return {
+      title: d.title,
+      tip: d.tip,
+      tone: d.silhouette ? '#262a44' : null,
+      added: d.silhouette ? [] : colors,
+      _colors: colors,
+      _sil: d.silhouette
+    };
+  });
+  // Visibility is cumulative: nothing drawn is ever hidden again.
+  // (The silhouette step intentionally shows everything as one tone first.)
+  const cum = new Set();
+  steps.forEach((s) => {
+    if (s._sil) { s.visible = new Set(allKeys); }
+    else { s._colors.forEach((c) => cum.add(c.key)); s.visible = new Set(cum); }
+    delete s._colors;
+    delete s._sil;
+  });
   steps.forEach((s, i) => { s.num = i + 1; s.total = steps.length; });
   return steps;
 }
@@ -508,7 +672,7 @@ function SB_downscaleSize(w, h) {
 (function () {
   'use strict';
 
-  var state = { cl: null, steps: [], stepIdx: 0, zoom: 1, w: 0, h: 0, px: null, scaledNote: false };
+  var state = { cl: null, steps: [], stepIdx: 0, zoom: 1, w: 0, h: 0, px: null, scaledNote: false, stepN: 6 };
 
   function $(id) { return document.getElementById(id); }
 
@@ -552,12 +716,14 @@ function SB_downscaleSize(w, h) {
     state.px = data; state.w = w; state.h = h;
     state.scaledNote = !!scaledNote;
     state.cl = SB_classify(data, w, h);
-    state.steps = SB_buildSteps(state.cl);
+    state.stepN = 6;
+    state.steps = SB_buildSteps(state.cl, state.stepN);
     state.stepIdx = 0;
     state.zoom = 1;
     $('uploadView').classList.add('hidden');
     $('resultView').classList.remove('hidden');
     renderPalette();
+    renderStepCount();
     renderStep();
     if (state.scaledNote) {
       $('scaleWarn').classList.remove('hidden');
@@ -682,6 +848,38 @@ function SB_downscaleSize(w, h) {
     renderStep();
   }
 
+  /* ---- configurable guide step count (2..24, default 6) ---- */
+  function renderStepCount() {
+    if (!state.cl) return;
+    var cap = SB_stepCapacity(state.cl);
+    $('stepCountVal').textContent = state.steps.length;
+    $('stepDown').disabled = state.stepN <= 2;
+    $('stepUp').disabled = state.stepN >= Math.min(24, cap);
+  }
+
+  function changeStep(d) {
+    if (!state.cl) return;
+    var cap = SB_stepCapacity(state.cl);
+    var n = state.stepN + d;
+    if (n < 2) n = 2;
+    if (n > 24) n = 24;
+    var clamped = false;
+    if (n > cap) { n = cap; clamped = true; }
+    if (n === state.stepN && state.steps.length === n) return;
+    state.stepN = n;
+    state.steps = SB_buildSteps(state.cl, n);
+    state.stepIdx = 0;
+    renderStepCount();
+    renderStep();
+    var note = $('stepCountNote');
+    if (clamped) {
+      note.textContent = 'This sprite breaks down into at most ' + cap + ' meaningful steps.';
+      note.classList.remove('hidden');
+    } else {
+      note.classList.add('hidden');
+    }
+  }
+
   /* ---- file intake ---- */
   function handleFile(file) {
     if (!file || !file.type.match(/^image\//)) { toast('Please choose an image file'); return; }
@@ -724,6 +922,8 @@ function SB_downscaleSize(w, h) {
     $('nextBtn').addEventListener('click', function () { goStep(state.stepIdx + 1); });
     $('zoomIn').addEventListener('click', function () { zoomBy(1); });
     $('zoomOut').addEventListener('click', function () { zoomBy(-1); });
+    $('stepDown').addEventListener('click', function () { changeStep(-1); });
+    $('stepUp').addEventListener('click', function () { changeStep(1); });
 
     // swipe navigation
     var sx = null;
@@ -758,7 +958,7 @@ function SB_downscaleSize(w, h) {
   // Synchronous hook for automated tests / screenshots.
   window.SpriteBreakdown = {
     loadPixels: loadPixels,
-    version: 'mvp-1'
+    version: 'mvp-2'
   };
 
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
