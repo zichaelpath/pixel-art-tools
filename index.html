@@ -74,7 +74,7 @@ header p { color: var(--muted); margin: 0 0 16px; font-size: 0.95rem; }
 .hint { font-size: 0.85rem; color: var(--muted); }
 .warn { font-size: 0.9rem; color: #ffd98a; background: #2a2415; border: 1px solid #5a4a22; border-radius: 8px; padding: 8px 12px; margin-top: 10px; }
 
-#stage { text-align: center; }
+#stage { text-align: center; margin: 8px 0 2px; }
 #stepCanvas {
   image-rendering: pixelated;
   image-rendering: crisp-edges;
@@ -168,21 +168,9 @@ footer .lock { font-size: 1rem; }
     <div class="card" id="guideCard">
       <h2>Drawing guide</h2>
       <p class="hint" style="margin-top:0">A good drawing order — not necessarily the order the artist used.</p>
-      <div class="stepctl">
-        <span id="stepCountLabel">Guide steps</span>
-        <button class="btn stepbtn" id="stepDown" aria-label="Fewer guide steps">−</button>
-        <span id="stepCountVal" aria-live="polite">6</span>
-        <button class="btn stepbtn" id="stepUp" aria-label="More guide steps">+</button>
-      </div>
-      <p class="hint hidden" id="stepCountNote"></p>
-      <div class="togglerow">
-        <label class="tg" for="isolateTgl"><input type="checkbox" id="isolateTgl"><span class="tsl" aria-hidden="true"></span><span class="tgtxt">Isolate step</span></label>
-        <label class="tg" for="templateTgl"><input type="checkbox" id="templateTgl"><span class="tsl" aria-hidden="true"></span><span class="tgtxt">Template colors</span></label>
-      </div>
       <div id="stage">
         <canvas id="stepCanvas" width="16" height="16"></canvas>
       </div>
-      <div id="tplLegend" class="hidden" aria-live="polite"></div>
       <div class="stepnav">
         <button class="btn" id="prevBtn" aria-label="Previous step">← Prev</button>
         <div><div id="stepTitle">Step</div></div>
@@ -194,9 +182,21 @@ footer .lock { font-size: 1rem; }
         <span id="zoomLabel">1x</span>
         <button class="btn" id="zoomIn" aria-label="Zoom in">+</button>
       </div>
+      <div class="stepctl">
+        <span id="stepCountLabel">Guide steps</span>
+        <button class="btn stepbtn" id="stepDown" aria-label="Fewer guide steps">−</button>
+        <span id="stepCountVal" aria-live="polite">6</span>
+        <button class="btn stepbtn" id="stepUp" aria-label="More guide steps">+</button>
+      </div>
+      <p class="hint hidden" id="stepCountNote"></p>
+      <div class="togglerow">
+        <label class="tg" for="isolateTgl"><input type="checkbox" id="isolateTgl"><span class="tsl" aria-hidden="true"></span><span class="tgtxt">Isolate step</span></label>
+        <label class="tg" for="templateTgl"><input type="checkbox" id="templateTgl"><span class="tsl" aria-hidden="true"></span><span class="tgtxt">Template colors</span></label>
+      </div>
       <p id="stepTip"></p>
       <div id="stepMeasure" aria-live="polite"></div>
       <div id="stepSwatches"></div>
+      <div id="tplLegend" class="hidden" aria-live="polite"></div>
     </div>
 
     <div class="card">
@@ -735,6 +735,22 @@ function SB_downscaleSize(w, h) {
   return { w: Math.max(1, Math.round(w * k)), h: Math.max(1, Math.round(h * k)), scaled: true };
 }
 
+/* Map an analysis-space bbox back to source-sprite pixel coordinates.
+   Analysis may run on a downscaled image (see SB_downscaleSize); the user
+   requires every displayed number in ORIGINAL sprite pixels, so bboxes are
+   mapped back and clamped to [0, srcW-1] x [0, srcH-1]. */
+function SB_toSourceBox(b, srcW, srcH, anaW, anaH) {
+  if (!b) return null;
+  if (!(srcW > 0) || !(srcH > 0) || !(anaW > 0) || !(anaH > 0)) return null;
+  var kx = anaW / srcW, ky = anaH / srcH;
+  var x0 = Math.max(0, Math.floor(b.x0 / kx));
+  var y0 = Math.max(0, Math.floor(b.y0 / ky));
+  var x1 = Math.min(srcW - 1, Math.ceil((b.x1 + 1) / kx) - 1);
+  var y1 = Math.min(srcH - 1, Math.ceil((b.y1 + 1) / ky) - 1);
+  if (x1 < x0 || y1 < y0) return null;
+  return { x0: x0, y0: y0, x1: x1, y1: y1 };
+}
+
 /* HSL -> hex (0<=h<360, 0<=s,l<=1). */
 function SB_hslToHex(h, s, l) {
   h = (((h % 360) + 360) % 360) / 360;
@@ -810,8 +826,9 @@ function SB_debugPalette() {
   }
 
   /* ---- core pipeline: flat RGBA array -> full UI ---- */
-  function loadPixels(data, w, h, scaledNote) {
+  function loadPixels(data, w, h, scaledNote, srcW, srcH) {
     state.px = data; state.w = w; state.h = h;
+    state.srcW = srcW || w; state.srcH = srcH || h;
     state.scaledNote = !!scaledNote;
     state.cl = SB_classify(data, w, h);
     state.stepN = 6;
@@ -934,10 +951,14 @@ function SB_debugPalette() {
     renderLegend();
   }
 
+  /* Bounding box as source-sprite pixel coordinates: "(x1, y1) to (x2, y2)".
+     st.bbox is in analysis pixels; SB_toSourceBox maps it back to the
+     original sprite grid (analysis may run downscaled). */
   function bboxText(st) {
     if (!st.bbox) return null;
-    var w = st.bbox.x1 - st.bbox.x0 + 1, h = st.bbox.y1 - st.bbox.y0 + 1;
-    return w + ' × ' + h + ' px';
+    var b = SB_toSourceBox(st.bbox, state.srcW, state.srcH, state.w, state.h);
+    if (!b) return null;
+    return '(' + b.x0 + ', ' + b.y0 + ') to (' + b.x1 + ', ' + b.y1 + ')';
   }
 
   /* Per-step pixel measurements: what this step adds, with real numbers. */
@@ -971,7 +992,7 @@ function SB_debugPalette() {
         addRow(col.hex, col.hex + ' · ' + col.role, fmt(col.count) + ' px');
       });
       var b = bboxText(st);
-      addRow(null, 'Step area', (b ? b + ' — ' : '') + fmt(st.addedCount) + ' px total', true);
+      addRow(null, 'Step area', (b ? b + ' — ' : '') + fmt(st.addedCount) + ' px', true);
     } else {
       addRow(null, 'No new colors', 'full sprite shown', true);
     }
@@ -1041,7 +1062,7 @@ function SB_debugPalette() {
       pal.appendChild(swatchCell(col, col.role));
     });
     $('palCount').textContent = state.cl.colors.length + ' colors · ' +
-      state.cl.totalOpaque + ' opaque pixels · ' + state.w + '×' + state.h;
+      state.cl.totalOpaque + ' opaque pixels · ' + state.srcW + '×' + state.srcH;
   }
 
   function goStep(i) {
@@ -1104,7 +1125,7 @@ function SB_debugPalette() {
       ctx.imageSmoothingEnabled = true;
       ctx.drawImage(img, 0, 0, size.w, size.h);
       var data = ctx.getImageData(0, 0, size.w, size.h).data;
-      loadPixels(data, size.w, size.h, size.scaled);
+      loadPixels(data, size.w, size.h, size.scaled, img.naturalWidth, img.naturalHeight);
       window.scrollTo(0, 0);
     };
     img.onerror = function () { toast('Could not read that image'); };
@@ -1170,7 +1191,7 @@ function SB_debugPalette() {
   // Synchronous hook for automated tests / screenshots.
   window.SpriteBreakdown = {
     loadPixels: loadPixels,
-    version: 'mvp-3'
+    version: 'mvp-4'
   };
 
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
