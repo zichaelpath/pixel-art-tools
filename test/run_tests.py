@@ -328,4 +328,48 @@ res = json.loads(out[i + len('TEST_RESULT:'):].strip().split('\n')[0])
 print('PASS' if res['pass'] else 'FAIL')
 for f in res['failures']:
     print(' -', f)
-sys.exit(0 if res['pass'] else 1)
+
+# ---- static layout checks: internal scroll container (mvp-5) ----
+import re
+# The tool must scroll INTERNALLY (full-viewport #scroller) so it works
+# inside fixed-height iframes on mobile (itch embed), where document
+# scrolling fails. Assert the structure in src + the built file.
+static_failures = []
+def scheck(cond, msg):
+    if not cond:
+        static_failures.append(msg)
+
+tpl = open(os.path.join(BASE, 'src', 'template.html'), encoding='utf-8').read()
+css = open(os.path.join(BASE, 'src', 'style.css'), encoding='utf-8').read()
+appjs = open(os.path.join(BASE, 'src', 'app.js'), encoding='utf-8').read()
+built_path = os.path.join(BASE, 'dist', 'index.html')
+built = ''
+if os.path.exists(built_path):
+    built = open(built_path, encoding='utf-8').read()
+
+scheck('id="scroller"' in tpl, 'template missing #scroller container')
+scheck('id="scroller"' in built, 'built index.html missing #scroller container')
+i_scr = tpl.find('id="scroller"')
+i_up = tpl.find('id="uploadView"')
+i_res = tpl.find('id="resultView"')
+scheck(-1 < i_scr < i_up < i_res, '#scroller must open before both views')
+i_script = tpl.find('<script>')
+body_before_scripts = tpl[:i_script].rstrip() if i_script > -1 else ''
+scheck(re.search(r'</div>\s*</div>$', body_before_scripts) is not None,
+       '#scroller/.wrap not closed after both views (expected two closing </div> before scripts)')
+scheck('#scroller' in css and 'overflow-y: auto' in css,
+       'style.css missing #scroller overflow-y: auto')
+scheck('-webkit-overflow-scrolling: touch' in css,
+       'style.css missing -webkit-overflow-scrolling: touch')
+scheck('height: 100%' in css, 'style.css missing full-viewport height')
+scheck('overflow-y: auto' in built, 'built index.html missing internal-scroll CSS')
+scheck('window.scrollTo' not in appjs, 'app.js still calls window.scrollTo')
+scheck('window.scrollTo' not in built, 'built index.html still calls window.scrollTo')
+scheck('resetScroll();' in appjs, 'app.js missing resetScroll() calls')
+scheck("version: 'mvp-5'" in appjs, 'app.js version marker is not mvp-5')
+scheck('mvp-5' in built, 'built index.html missing mvp-5 marker')
+
+print('STATIC_LAYOUT:' + ('PASS' if not static_failures else 'FAIL'))
+for f in static_failures:
+    print(' -', f)
+sys.exit(0 if (res['pass'] and not static_failures) else 1)

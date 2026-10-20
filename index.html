@@ -18,13 +18,22 @@
   --radius: 12px;
 }
 * { box-sizing: border-box; }
-html { -webkit-text-size-adjust: 100%; }
+html { -webkit-text-size-adjust: 100%; height: 100%; }
 body {
   margin: 0;
+  height: 100%;
+  overflow: hidden;
+  overscroll-behavior-y: none;
   background: var(--bg);
   color: var(--text);
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
   line-height: 1.5;
+}
+#scroller {
+  height: 100%;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
 }
 .wrap { max-width: 600px; margin: 0 auto; padding: 16px 16px 40px; }
 header h1 { font-size: 1.35rem; margin: 8px 0 2px; }
@@ -141,6 +150,7 @@ footer .lock { font-size: 1rem; }
 </style>
 </head>
 <body>
+<div id="scroller">
 <div class="wrap">
 
   <header>
@@ -225,6 +235,7 @@ footer .lock { font-size: 1rem; }
     Sprite Breakdown MVP · free &amp; open for game devs
   </footer>
 
+</div>
 </div>
 <script>/* ============================================================
  * Sprite Breakdown — pure analysis module (no DOM, no canvas).
@@ -784,6 +795,11 @@ function SB_debugPalette() {
 
   function $(id) { return document.getElementById(id); }
 
+  function resetScroll() {
+    var s = $('scroller');
+    if (s) s.scrollTop = 0;
+  }
+
   function toast(msg) {
     var t = $('toast');
     t.textContent = msg;
@@ -1126,7 +1142,7 @@ function SB_debugPalette() {
       ctx.drawImage(img, 0, 0, size.w, size.h);
       var data = ctx.getImageData(0, 0, size.w, size.h).data;
       loadPixels(data, size.w, size.h, size.scaled, img.naturalWidth, img.naturalHeight);
-      window.scrollTo(0, 0);
+      resetScroll();
     };
     img.onerror = function () { toast('Could not read that image'); };
     img.src = url;
@@ -1180,7 +1196,7 @@ function SB_debugPalette() {
       document.title = 'Sprite Breakdown';
       $('resultView').classList.add('hidden');
       $('uploadView').classList.remove('hidden');
-      window.scrollTo(0, 0);
+      resetScroll();
     });
 
     window.addEventListener('error', function (e) {
@@ -1191,7 +1207,7 @@ function SB_debugPalette() {
   // Synchronous hook for automated tests / screenshots.
   window.SpriteBreakdown = {
     loadPixels: loadPixels,
-    version: 'mvp-4'
+    version: 'mvp-5'
   };
 
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);

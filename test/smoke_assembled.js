@@ -596,6 +596,7 @@ function SB_debugPalette() {
   for (let i = 0; i < 24; i++) out.push(SB_hslToHex((i * 137.508) % 360, 1, 0.55));
   return out;
 }
+
 /* Sprite Breakdown — app shell (DOM). Pure analysis lives in analysis.js. */
 (function () {
   'use strict';
@@ -603,6 +604,11 @@ function SB_debugPalette() {
   var state = { cl: null, steps: [], stepIdx: 0, zoom: 1, w: 0, h: 0, px: null, scaledNote: false, stepN: 6, isolate: false, template: false };
 
   function $(id) { return document.getElementById(id); }
+
+  function resetScroll() {
+    var s = $('scroller');
+    if (s) s.scrollTop = 0;
+  }
 
   function toast(msg) {
     var t = $('toast');
@@ -946,7 +952,7 @@ function SB_debugPalette() {
       ctx.drawImage(img, 0, 0, size.w, size.h);
       var data = ctx.getImageData(0, 0, size.w, size.h).data;
       loadPixels(data, size.w, size.h, size.scaled, img.naturalWidth, img.naturalHeight);
-      window.scrollTo(0, 0);
+      resetScroll();
     };
     img.onerror = function () { toast('Could not read that image'); };
     img.src = url;
@@ -1000,7 +1006,7 @@ function SB_debugPalette() {
       document.title = 'Sprite Breakdown';
       $('resultView').classList.add('hidden');
       $('uploadView').classList.remove('hidden');
-      window.scrollTo(0, 0);
+      resetScroll();
     });
 
     window.addEventListener('error', function (e) {
@@ -1011,7 +1017,7 @@ function SB_debugPalette() {
   // Synchronous hook for automated tests / screenshots.
   window.SpriteBreakdown = {
     loadPixels: loadPixels,
-    version: 'mvp-4'
+    version: 'mvp-5'
   };
 
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);

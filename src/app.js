@@ -6,6 +6,11 @@
 
   function $(id) { return document.getElementById(id); }
 
+  function resetScroll() {
+    var s = $('scroller');
+    if (s) s.scrollTop = 0;
+  }
+
   function toast(msg) {
     var t = $('toast');
     t.textContent = msg;
@@ -348,7 +353,7 @@
       ctx.drawImage(img, 0, 0, size.w, size.h);
       var data = ctx.getImageData(0, 0, size.w, size.h).data;
       loadPixels(data, size.w, size.h, size.scaled, img.naturalWidth, img.naturalHeight);
-      window.scrollTo(0, 0);
+      resetScroll();
     };
     img.onerror = function () { toast('Could not read that image'); };
     img.src = url;
@@ -402,7 +407,7 @@
       document.title = 'Sprite Breakdown';
       $('resultView').classList.add('hidden');
       $('uploadView').classList.remove('hidden');
-      window.scrollTo(0, 0);
+      resetScroll();
     });
 
     window.addEventListener('error', function (e) {
@@ -413,7 +418,7 @@
   // Synchronous hook for automated tests / screenshots.
   window.SpriteBreakdown = {
     loadPixels: loadPixels,
-    version: 'mvp-4'
+    version: 'mvp-5'
   };
 
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
