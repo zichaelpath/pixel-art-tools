@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="description" content="Upload a pixel-art sprite and get a step-by-step drawing guide. Free, no uploads, no accounts — everything runs in your browser.">
+<title>Sprite Breakdown — free pixel-art drawing guide</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' fill='%2314161f'/%3E%3Crect x='3' y='3' width='4' height='4' fill='%237dd87d'/%3E%3Crect x='9' y='3' width='4' height='4' fill='%237dd87d'/%3E%3Crect x='3' y='9' width='4' height='4' fill='%237dd87d'/%3E%3Crect x='9' y='9' width='4' height='4' fill='%233f7a44'/%3E%3C/svg%3E">
+<style>/*__STYLE__*/</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <h1>🧩 Sprite Breakdown</h1>
+    <p>Upload a pixel-art sprite, get a step-by-step guide to drawing in its style. Free forever.</p>
+  </header>
+
+  <div id="toast" class="hidden" role="status"
+       style="position:fixed;left:50%;bottom:24px;transform:translateX(-50%);background:#2c3040;color:#fff;padding:10px 18px;border-radius:10px;z-index:50;font-size:.9rem;"></div>
+
+  <!-- ============ UPLOAD ============ -->
+  <section id="uploadView" class="card">
+    <div id="dropzone" role="button" tabindex="0" aria-label="Upload a sprite image">
+      <span class="big">🖼️</span>
+      <strong>Tap to upload a sprite</strong><br>
+      or drag &amp; drop a PNG here
+      <p class="hint">Works best with pixel art on a transparent background.<br>Photos will give messy results — this tool reads exact pixels.</p>
+    </div>
+    <input type="file" id="fileInput" accept="image/*" aria-hidden="true">
+  </section>
+
+  <!-- ============ RESULTS ============ -->
+  <section id="resultView" class="hidden">
+
+    <div class="card" id="guideCard">
+      <h2>Drawing guide</h2>
+      <p class="hint" style="margin-top:0">A good drawing order — not necessarily the order the artist used.</p>
+      <div id="stage">
+        <canvas id="stepCanvas" width="16" height="16"></canvas>
+      </div>
+      <div class="stepnav">
+        <button class="btn" id="prevBtn" aria-label="Previous step">← Prev</button>
+        <div><div id="stepTitle">Step</div></div>
+        <button class="btn primary" id="nextBtn" aria-label="Next step">Next →</button>
+      </div>
+      <div class="dots" id="dots"></div>
+      <div class="zoomrow">
+        <button class="btn" id="zoomOut" aria-label="Zoom out">−</button>
+        <span id="zoomLabel">1x</span>
+        <button class="btn" id="zoomIn" aria-label="Zoom in">+</button>
+      </div>
+      <div class="stepctl">
+        <span id="stepCountLabel">Guide steps</span>
+        <button class="btn stepbtn" id="stepDown" aria-label="Fewer guide steps">−</button>
+        <span id="stepCountVal" aria-live="polite">6</span>
+        <button class="btn stepbtn" id="stepUp" aria-label="More guide steps">+</button>
+      </div>
+      <p class="hint hidden" id="stepCountNote"></p>
+      <div class="togglerow">
+        <label class="tg" for="isolateTgl"><input type="checkbox" id="isolateTgl"><span class="tsl" aria-hidden="true"></span><span class="tgtxt">Isolate step</span></label>
+        <label class="tg" for="templateTgl"><input type="checkbox" id="templateTgl"><span class="tsl" aria-hidden="true"></span><span class="tgtxt">Template colors</span></label>
+      </div>
+      <p id="stepTip"></p>
+      <div id="stepMeasure" aria-live="polite"></div>
+      <div id="stepSwatches"></div>
+      <div id="tplLegend" class="hidden" aria-live="polite"></div>
+    </div>
+
+    <div class="card">
+      <h2>Palette</h2>
+      <p class="hint" id="palCount"></p>
+      <div id="allPalette"></div>
+      <h3>Export</h3>
+      <div class="btnrow">
+        <button class="btn" id="gplBtn">Download .gpl</button>
+        <button class="btn" id="hexBtn">Copy hex list</button>
+      </div>
+      <p class="hint">.gpl opens in Aseprite &amp; LibreSprite. Tap any swatch to copy its hex.</p>
+    </div>
+
+    <div class="warn hidden" id="scaleWarn">Large image — analysis ran on a downscaled 1024px version. For exact pixel counts, upload the sprite at native size.</div>
+    <div class="warn hidden" id="noAlphaWarn">No transparency detected, so outline detection was skipped. Sprites with transparent backgrounds give the best breakdowns.</div>
+
+    <div class="btnrow" style="margin-bottom:16px">
+      <button class="btn" id="newBtn">← Analyze another sprite</button>
+    </div>
+
+  </section>
+
+  <footer>
+    <span class="lock">🔒</span> Your images never leave this device. No uploads, no accounts, no tracking.<br>
+    Sprite Breakdown MVP · free &amp; open for game devs
+  </footer>
+
+</div>
+<script>/*__ANALYSIS__*/</script>
+<script>/*__APP__*/</script>
+</body>
+</html>

@@ -1,0 +1,390 @@
+<!DOCTYPE html><html><head><meta charset="utf-8"></head><body><script>/* ============================================================
+ * Sprite Breakdown — pure analysis module (no DOM, no canvas).
+ * All functions operate on a flat RGBA pixel array:
+ *   data   : array-like of numbers, length = width*height*4
+ *   width  : image width in pixels
+ *   height : image height in pixels
+ * Works with Uint8ClampedArray (from canvas) or plain Arrays.
+ * ============================================================ */
+
+function SB_hex(r, g, b) {
+  const h = (n) => n.toString(16).padStart(2, '0');
+  return '#' + h(r) + h(g) + h(b);
+}
+
+function SB_key(r, g, b, a) { return r + ',' + g + ',' + b + ',' + a; }
+
+function SB_rgbToHsl(r, g, b) {
+  r /= 255; g /= 255; b /= 255;
+  const mx = Math.max(r, g, b), mn = Math.min(r, g, b);
+  const l = (mx + mn) / 2;
+  let h = 0, s = 0;
+  if (mx !== mn) {
+    const d = mx - mn;
+    s = l > 0.5 ? d / (2 - mx - mn) : d / (mx + mn);
+    if (mx === r) h = (g - b) / d + (g < b ? 6 : 0);
+    else if (mx === g) h = (b - r) / d + 2;
+    else h = (r - g) / d + 4;
+    h *= 60;
+  }
+  return { h: h, s: s, l: l };
+}
+
+function SB_relLum(r, g, b) {
+  const f = (c) => { c /= 255; return c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4); };
+  return 0.2126 * f(r) + 0.7152 * f(g) + 0.0722 * f(b);
+}
+
+function SB_hueDist(h1, h2) {
+  const d = Math.abs(h1 - h2) % 360;
+  return d > 180 ? 360 - d : d;
+}
+
+function SB_hueName(h, s, l) {
+  if (s < 0.15) {
+    if (l < 0.12) return 'near-black';
+    if (l > 0.85) return 'near-white';
+    return 'gray';
+  }
+  if (h < 15 || h >= 345) return 'red';
+  if (h < 45) return 'orange';
+  if (h < 75) return 'yellow';
+  if (h < 165) return 'green';
+  if (h < 195) return 'cyan';
+  if (h < 255) return 'blue';
+  return 'purple';
+}
+
+function SB_describe(c) {
+  const tone = c.lum < 0.06 ? 'near-black' : c.lum < 0.22 ? 'dark' : c.lum > 0.75 ? 'light' : 'mid-tone';
+  const hue = SB_hueName(c.h, c.s, c.l);
+  if (hue === 'near-black' || hue === 'near-white' || hue === 'gray') return hue;
+  return tone + ' ' + hue;
+}
+
+/* Exact RGBA census of opaque pixels (alpha === 0 skipped).
+ * Returns array of {r,g,b,a,key,hex,count} sorted by count desc. */
+function SB_census(data, width, height) {
+  const map = new Map();
+  const n = width * height;
+  for (let i = 0; i < n; i++) {
+    const o = i * 4;
+    const a = data[o + 3];
+    if (a === 0) continue;
+    const r = data[o], g = data[o + 1], b = data[o + 2];
+    const k = SB_key(r, g, b, a);
+    let e = map.get(k);
+    if (!e) { e = { r: r, g: g, b: b, a: a, key: k, hex: SB_hex(r, g, b), count: 0 }; map.set(k, e); }
+    e.count++;
+  }
+  const out = Array.from(map.values());
+  out.sort((x, y) => y.count - x.count);
+  return out;
+}
+
+/* For each color key, fraction of its pixels touching transparency
+ * (8-neighborhood) or the image edge. */
+function SB_boundaryFractions(data, width, height, keys) {
+  const idx = new Map();
+  keys.forEach((k, i) => idx.set(k, i));
+  const touch = new Array(keys.length).fill(0);
+  const total = new Array(keys.length).fill(0);
+  const keyAt = (x, y) => {
+    if (x < 0 || y < 0 || x >= width || y >= height) return null;
+    const o = (y * width + x) * 4;
+    if (data[o + 3] === 0) return null;
+    return SB_key(data[o], data[o + 1], data[o + 2], data[o + 3]);
+  };
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      const o = (y * width + x) * 4;
+      if (data[o + 3] === 0) continue;
+      const ci = idx.get(SB_key(data[o], data[o + 1], data[o + 2], data[o + 3]));
+      total[ci]++;
+      let b = false;
+      for (let dy = -1; dy <= 1 && !b; dy++) {
+        for (let dx = -1; dx <= 1; dx++) {
+          if (dx === 0 && dy === 0) continue;
+          if (keyAt(x + dx, y + dy) === null) { b = true; break; }
+        }
+      }
+      if (b) touch[ci]++;
+    }
+  }
+  const out = new Map();
+  keys.forEach((k, i) => out.set(k, total[i] ? touch[i] / total[i] : 0));
+  return out;
+}
+
+/* Detect 2x2 checkerboard dithering between two colors. */
+function SB_detectDither(data, width, height) {
+  const keyAt = (x, y) => {
+    const o = (y * width + x) * 4;
+    if (data[o + 3] === 0) return null;
+    return SB_key(data[o], data[o + 1], data[o + 2], data[o + 3]);
+  };
+  const pairs = new Map();
+  let blocks = 0;
+  for (let y = 0; y < height - 1; y++) {
+    for (let x = 0; x < width - 1; x++) {
+      const a = keyAt(x, y), b = keyAt(x + 1, y), c = keyAt(x, y + 1), d = keyAt(x + 1, y + 1);
+      if (a === null || b === null || c === null || d === null) continue;
+      if (a === d && b === c && a !== b) {
+        const p = a < b ? a + '|' + b : b + '|' + a;
+        pairs.set(p, (pairs.get(p) || 0) + 1);
+        blocks++;
+      }
+    }
+  }
+  if (blocks < 4) return { found: false, blocks: 0 };
+  let top = null, tc = 0;
+  pairs.forEach((cnt, p) => { if (cnt > tc) { tc = cnt; top = p; } });
+  const parts = top.split('|');
+  return { found: true, colorA: parts[0], colorB: parts[1], blocks: blocks };
+}
+
+/* Classify every color into a role. Heuristics, applied in order:
+ *  - outline : >=50% of pixels touch transparency/edge
+ *  - fill    : up to 3 highest-count interior (<35% boundary) colors
+ *  - shade/highlight/tone : within 40deg hue of a fill and darker/lighter/similar
+ *  - accent  : everything else (small detail colors) */
+function SB_classify(data, width, height) {
+  const census = SB_census(data, width, height);
+  const keys = census.map((c) => c.key);
+  const bf = SB_boundaryFractions(data, width, height, keys);
+  const cols = census.map((c) => {
+    const hsl = SB_rgbToHsl(c.r, c.g, c.b);
+    return {
+      r: c.r, g: c.g, b: c.b, a: c.a, key: c.key, hex: c.hex, count: c.count,
+      h: hsl.h, s: hsl.s, l: hsl.l, lum: SB_relLum(c.r, c.g, c.b),
+      boundary: bf.get(c.key), role: 'unassigned', rampOf: null
+    };
+  });
+
+  const remaining = [];
+  for (const c of cols) {
+    if (c.boundary >= 0.5) c.role = 'outline';
+    else remaining.push(c);
+  }
+
+  const interior = remaining.filter((c) => c.boundary < 0.35).sort((a, b) => b.count - a.count);
+  let fills = interior.slice(0, 3);
+  if (fills.length === 0 && remaining.length > 0) {
+    // Degenerate case (no transparency at all): top color becomes the fill.
+    remaining.sort((a, b) => b.count - a.count);
+    fills = [remaining[0]];
+  }
+  const fillSet = new Set(fills.map((f) => f.key));
+  fills.forEach((c) => { c.role = 'fill'; });
+
+  for (const c of remaining) {
+    if (fillSet.has(c.key)) continue;
+    let best = null, bd = 1e9;
+    for (const f of fills) {
+      const d = SB_hueDist(c.h, f.h);
+      if (d < bd) { bd = d; best = f; }
+    }
+    if (best && bd <= 40 && c.s > 0.12 && best.s > 0.12) {
+      c.rampOf = best.key;
+      if (c.lum < best.lum - 0.04) c.role = 'shade';
+      else if (c.lum > best.lum + 0.04) c.role = 'highlight';
+      else c.role = 'tone';
+    } else {
+      c.role = 'accent';
+    }
+  }
+
+  const dither = SB_detectDither(data, width, height);
+  const hasTransparency = (() => {
+    const n = width * height;
+    for (let i = 0; i < n; i++) if (data[i * 4 + 3] === 0) return true;
+    return false;
+  })();
+  return {
+    colors: cols,
+    width: width, height: height,
+    totalOpaque: cols.reduce((s, c) => s + c.count, 0),
+    dither: dither,
+    hasTransparency: hasTransparency
+  };
+}
+
+/* Group fills with their shade/highlight/tone ramp members. */
+function SB_ramps(classified) {
+  return classified.colors
+    .filter((c) => c.role === 'fill')
+    .map((f) => ({
+      fill: f,
+      members: classified.colors
+        .filter((c) => c.rampOf === f.key)
+        .sort((a, b) => b.lum - a.lum)
+    }));
+}
+
+/* Build the step-by-step guide. Each step:
+ *   { title, visible:Set(keys), added:[colors], tip, tone?:hex }
+ * Steps that add no new colors (except first/last) are dropped. */
+function SB_buildSteps(cl) {
+  const byRole = (r) => cl.colors.filter((c) => c.role === r);
+  const outlines = byRole('outline');
+  const fills = byRole('fill');
+  const shades = byRole('shade').concat(byRole('tone'));
+  const highs = byRole('highlight');
+  const accents = byRole('accent');
+  const all = cl.colors;
+
+  const hexList = (arr) => arr.map((c) => c.hex).join(', ');
+  const pct = (arr) => cl.totalOpaque ? Math.round(100 * arr.reduce((s, c) => s + c.count, 0) / cl.totalOpaque) : 0;
+
+  let outlineTip;
+  if (outlines.length) {
+    const o = outlines[0];
+    outlineTip = 'Outline: ' + o.hex + ' — a ' + SB_describe(o) +
+      (o.hex.toLowerCase() === '#000000' ? ', pure black.' : ', not pure black.') +
+      ' Trace the silhouette with it before filling anything in.';
+  } else if (!cl.hasTransparency) {
+    outlineTip = 'No transparency in this image, so no outline could be detected. ' +
+      'Upload a sprite with a transparent background for outline detection.';
+  } else {
+    outlineTip = 'No outline detected — shapes end at the fills. That is a softer, outline-less style; keep edges clean instead.';
+  }
+
+  const ditherTip = cl.dither.found
+    ? ' Checkerboard dithering spotted between two tones (' + cl.dither.blocks + ' blocks) — a classic way to blend without adding colors.'
+    : '';
+
+  const cand = [
+    {
+      title: 'Silhouette', tone: '#262a44', visible: all, added: [],
+      tip: 'Block in the whole shape first: ' + cl.totalOpaque + ' opaque pixels at ' +
+        cl.width + 'x' + cl.height + '. If it reads well as a blob, the sprite will work.' +
+        (cl.colors.length <= 16 ? ' Tight ' + cl.colors.length + '-color palette — beginner-friendly.' : ' ' + cl.colors.length + ' colors total.')
+    },
+    {
+      title: 'Base fills', visible: fills, added: fills,
+      tip: fills.length
+        ? 'Lay in the ' + fills.length + ' main fill' + (fills.length > 1 ? 's' : '') + ': ' + hexList(fills) +
+          '. They cover ' + pct(fills) + '% of the sprite — get these flat shapes right before shading.'
+        : 'No clear fill colors found — start with the single biggest color region.'
+    },
+    {
+      title: 'Shading', visible: fills.concat(shades), added: shades,
+      tip: shades.length
+        ? shades.length + ' shade color' + (shades.length > 1 ? 's' : '') + ' darken the fills: ' + hexList(shades) +
+          '. Pick one light direction and keep every shadow on the same side.' + ditherTip
+        : 'No separate shade colors detected — this sprite is flat-shaded. Add one darker tone per fill on a consistent side.' + ditherTip
+    },
+    {
+      title: 'Highlights', visible: fills.concat(shades, highs), added: highs,
+      tip: highs.length
+        ? highs.length + ' highlight' + (highs.length > 1 ? 's' : '') + ': ' + hexList(highs) +
+          '. Less is more — highlights sit opposite the shadows, on edges facing the light.'
+        : 'No highlight colors detected. One lighter tone per fill, used sparingly, adds a lot of pop.'
+    },
+    {
+      title: 'Outline', visible: fills.concat(shades, highs, outlines), added: outlines,
+      tip: outlineTip
+    },
+    {
+      title: 'Details', visible: all, added: accents,
+      tip: accents.length
+        ? 'Finish with ' + accents.length + ' accent' + (accents.length > 1 ? 's' : '') + ' for the small stuff: ' + hexList(accents) + '.'
+        : 'No tiny accent colors — all the detail lives in the shapes themselves.'
+    }
+  ];
+
+  // Drop middle steps that add nothing new; always keep first and last.
+  const steps = cand.filter((s, i) => i === 0 || i === cand.length - 1 || s.added.length > 0);
+  steps.forEach((s, i) => { s.num = i + 1; s.total = steps.length; });
+  return steps;
+}
+
+/* GIMP (.gpl) palette — opens in Aseprite / LibreSprite. */
+function SB_paletteToGpl(colors, name) {
+  let s = 'GIMP Palette\nName: ' + (name || 'Sprite Breakdown') + '\nColumns: 8\n#\n';
+  const sorted = colors.slice().sort((a, b) => b.count - a.count);
+  for (const c of sorted) s += c.r + ' ' + c.g + ' ' + c.b + '\t' + c.hex + '\n';
+  return s;
+}
+
+/* Downscale policy: longest side capped at 1024 for analysis. */
+function SB_needsDownscale(w, h) { return Math.max(w, h) > 1024; }
+function SB_downscaleSize(w, h) {
+  const m = Math.max(w, h);
+  if (m <= 1024) return { w: w, h: h, scaled: false };
+  const k = 1024 / m;
+  return { w: Math.max(1, Math.round(w * k)), h: Math.max(1, Math.round(h * k)), scaled: true };
+}
+</script><script>
+var EXPECTED = {"#1a1c2c": 48, "#d23c2e": 16, "#2ed27c": 2, "#8e2318": 12, "#f2765a": 6, "#3a7bd5": 8, "#2a5aa8": 8};
+var failures = [];
+function assert(c, m) { if (!c) failures.push(m); }
+function keyHex(k) { var p = k.split(','); return '#' + p.slice(0,3).map(function(n){return (+n).toString(16).padStart(2,'0');}).join(''); }
+
+function runWith(d, w, h) {
+  var cen = SB_census(d, w, h);
+  var got = {};
+  cen.forEach(function(e){ got[e.hex] = e.count; });
+  var keys = Object.keys(EXPECTED);
+  assert(keys.length === Object.keys(got).length,
+    'palette size: expected ' + keys.length + ' got ' + Object.keys(got).length + ' :: ' + JSON.stringify(got));
+  keys.forEach(function(k){
+    assert(got[k] === EXPECTED[k], 'count for ' + k + ': expected ' + EXPECTED[k] + ' got ' + got[k]);
+  });
+
+  var cl = SB_classify(d, w, h);
+  function roleOf(hex){ var f = cl.colors.filter(function(c){return c.hex===hex;}); return f.length ? f[0].role : 'MISSING'; }
+  assert(roleOf('#1a1c2c') === 'outline', 'outline role, got ' + roleOf('#1a1c2c'));
+  assert(roleOf('#d23c2e') === 'fill', 'fill role, got ' + roleOf('#d23c2e'));
+  assert(roleOf('#f2765a') === 'highlight', 'highlight role, got ' + roleOf('#f2765a'));
+  assert(roleOf('#2ed27c') === 'accent', 'accent role, got ' + roleOf('#2ed27c'));
+  assert(cl.dither.found === true, 'dither not detected');
+  if (cl.dither.found) {
+    var pair = [keyHex(cl.dither.colorA), keyHex(cl.dither.colorB)].sort().join(',');
+    assert(pair === '#2a5aa8,#3a7bd5', 'dither pair wrong: ' + pair);
+  }
+  assert(cl.hasTransparency === true, 'hasTransparency should be true');
+
+  var steps = SB_buildSteps(cl);
+  assert(steps.length >= 4, 'expected >=4 steps, got ' + steps.length);
+  assert(steps[0].title === 'Silhouette', 'first step not Silhouette');
+  assert(steps[steps.length-1].title === 'Details', 'last step not Details');
+  steps.forEach(function(s){ assert(s.tip && s.tip.length > 10, 'empty tip on ' + s.title); });
+
+  // no-transparency degenerate image: 4x4 solid red
+  var d2 = [];
+  for (var i = 0; i < 4*4; i++) { d2.push(210,60,46,255); }
+  var cl2 = SB_classify(d2, 4, 4);
+  assert(cl2.hasTransparency === false, 'solid image should report no transparency');
+  assert(cl2.colors[0].role === 'fill', 'solid image top color should be fill, got ' + cl2.colors[0].role);
+
+  // downscale policy
+  var ds = SB_downscaleSize(2000, 1000);
+  assert(ds.w === 1024 && ds.h === 512 && ds.scaled === true, 'downscale 2000x1000 wrong: ' + JSON.stringify(ds));
+  assert(SB_downscaleSize(64, 64).scaled === false, 'small image should not scale');
+
+  // gpl export
+  var gpl = SB_paletteToGpl([{r:26,g:28,b:44,hex:'#1a1c2c',count:5}], 'T');
+  assert(gpl.indexOf('GIMP Palette') === 0, 'gpl header missing');
+  assert(gpl.indexOf('26 28 44') > -1, 'gpl color line missing');
+}
+
+var img = new Image();
+img.onload = function() {
+  try {
+    var c = document.createElement('canvas');
+    c.width = img.width; c.height = img.height;
+    var x = c.getContext('2d');
+    x.drawImage(img, 0, 0);
+    var d = x.getImageData(0, 0, img.width, img.height).data;
+    runWith(d, img.width, img.height);
+  } catch (e) { failures.push('EXCEPTION: ' + (e && e.message)); }
+  var r = { pass: failures.length === 0, failures: failures };
+  document.title = failures.length ? 'FAIL' : 'PASS';
+  document.body.textContent = 'TEST_RESULT:' + JSON.stringify(r);
+};
+img.onerror = function() {
+  document.body.textContent = 'TEST_RESULT:' + JSON.stringify({pass:false, failures:['image failed to load']});
+};
+img.src = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABgAAAAYCAYAAADgdz34AAAAs0lEQVR4nGOUktH5z4AFPHtyhRGbOKmAhYGBgUEhfiXDh/uXGQQUdRk+3L/M8OFQCzXMZmBgYGBgYmBgQDFcQFGXaobDLUA2/MP9y9S3gJY+YKR1JA99QDAYcAUhDBAKShZiXLFDgQmruMeDfwT1YteJBcRM82OImeZHrHI4IMoHDAwMDEuyNpFsONEW7Hn+CoeMCEG9RAcRuYAoH6QEO2EV71l2iToWaBBh0CgYBaMANwAAYM01pAg8UI4AAAAASUVORK5CYII=';
+</script></body></html>
